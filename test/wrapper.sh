@@ -41,11 +41,11 @@ function main()
   for test_file in $( ls *.txt ) ; do
     if ! ../src/lab2 < ${test_file} ; then
       local ret=$(echo $?)
-      if [ "$ret" -eq 2 ]; then
+      if (( $ret==2 )) ; then
         log_error "Division by zero"
         return 2
       fi
-      if [ "$ret" -eq 1 ]; then
+      if (( $ret==1 )) ; then
         log_error "Failed to run test"
         return 1
       fi

@@ -1,9 +1,5 @@
 #! /usr/bin/env bash
 
-set -o errexit
-set -o nounset
-
-
 function log_info()
 {
   log_ "info" "$@"
@@ -25,7 +21,7 @@ function log_()
 function main()
 {
   log_info "Stage #1 Compiling..."
-  if ! (cd ../src && make) ; then
+  if ! ( cd ../src && make ) ; then
     log_error "Failed to compile."
     return 1
   fi
@@ -39,16 +35,15 @@ function main()
 
   log_info "Stage #3 Checking..."
   for test_file in $( ls *.txt ) ; do
-    if ! ../src/lab2 < ${test_file} ; then
-      local ret=$(echo $?)
-      if (( $ret==2 )) ; then
-        log_error "Division by zero"
-        return 2
-      fi
-      if (( $ret==1 )) ; then
-        log_error "Failed to run test"
-        return 1
-      fi
+    echo ">>Checking "${test_file}"..."
+    ../src/lab2 < ${test_file}
+    ret=$?
+    if [ ${ret} -eq 2 ]; then
+      log_error "Division by zero"
+      return 2
+    elif [ ${ret} -eq 1 ]; then
+      log_error "Failed to run test"  
+      return 1
     fi
   done
 }

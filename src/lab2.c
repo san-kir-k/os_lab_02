@@ -2,6 +2,7 @@
 // 4 вариант
 
 #include <stdio.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -10,6 +11,15 @@
 #include <fcntl.h>
 
 #define BUF_SIZE 64
+#define RF_EOF 1
+#define RF_INVALID 2
+#define RF_VALID 0
+
+// проигнорировать невалидную строку
+void skip_str() {
+	char ch;
+	while (read(0, &ch, 1) > 0 && ch != '\n') {}
+}
 
 // считать имя файла с клавиатуры при помощи read
 void read_file_name(char file_name[BUF_SIZE]) {
@@ -19,6 +29,26 @@ void read_file_name(char file_name[BUF_SIZE]) {
         file_name[count++] = ch;
     }
     file_name[count] = '\0';
+}
+
+// проверка числа на валидность
+bool is_valid(char* buf) {
+	int i = 0;
+	int count_of_dots = 0;
+	while (buf[i] != '\0') {
+		if (isdigit(buf[i]) || buf[i] == '.') {
+			if (buf[i] == '.') {
+				count_of_dots++;
+				i++;
+			} else {
+				i++;
+				continue;
+			}
+		} else {
+			return false;
+		}
+	}
+	return (count_of_dots <= 1 && i > 0) ? true : false;
 }
 
 // считать float с клавиатуры при помощи read
@@ -36,23 +66,36 @@ int read_float(float* n) {
 			buf[count++] = ch;
 		}
     }
+	if (is_eof == 0) {
+		return RF_EOF;
+	}
     buf[count] = '\0';
+	if (!is_valid(buf)) {
+		if (ch != '\n')
+			skip_str();
+		return RF_INVALID; // строка невалидна
+	}
     *n = atof(buf) * sign;
-    return (is_eof > 0) ? 1 : 0;
+    return RF_VALID;
 }
 
 // считать три float в строке через разделитель
-int read_3_float(float* num1, float* num2, float* num3) {
+int read_3_float(float* num) {
 	// проверка на еоф (если хоть одна функция считывания словила еоф)
-	int to_return = 1;
-	to_return *= read_float(num1);
-	if (to_return == 0)
-		return to_return;
-	to_return *= read_float(num2);
-	if (to_return == 0)
-		return to_return;
-	to_return *= read_float(num3);
-	return to_return;
+	int from_read = 1;
+	int i = 0;
+	while (i < 3) {
+		from_read = read_float(&num[i]);
+		if (from_read == RF_INVALID || from_read == RF_EOF) {
+			if (from_read == RF_EOF) {
+				return RF_EOF;
+			} else {
+				return RF_INVALID;
+			}
+		}
+		i++;
+	}
+	return RF_VALID;
 }
 
 // закрывает канал
@@ -64,13 +107,15 @@ void close_pipe(int pipe[2]) {
 int parent_proc(int pipe1[2], int pipe2[2]) {
 	close(pipe1[0]);
 	close(pipe2[1]);
-	float num1, num2, num3;
+	float num[3];
 	// значение об окончании процесса, которое подается по второму каналу от ребенка к родителю 
 	bool kill_sig = false;
-	while (read_3_float(&num1, &num2, &num3)) {
-		write(pipe1[1], &num1, sizeof(float));
-		write(pipe1[1], &num2, sizeof(float));
-		write(pipe1[1], &num3, sizeof(float));
+	int read_ans = RF_VALID;
+	while ((read_ans = read_3_float(num)) != RF_EOF) {
+		if (read_ans == RF_INVALID) {
+			continue;
+		}
+		write(pipe1[1], &num, 3 * sizeof(float));
 		read(pipe2[0], &kill_sig, sizeof(bool));
 		if (kill_sig) {
 			close(pipe1[1]);
@@ -86,7 +131,7 @@ int parent_proc(int pipe1[2], int pipe2[2]) {
 int child_proc(char* file_name, int pipe1[2], int pipe2[2]) {
 	close(pipe1[1]);
 	close(pipe2[0]);
-	float num1, num2, num3;
+	float num[3];
 	bool kill_sig = false;
 	int fd = open(file_name, O_WRONLY | O_CREAT, S_IWRITE | S_IREAD);
 	if (fd < 0) {
@@ -95,10 +140,9 @@ int child_proc(char* file_name, int pipe1[2], int pipe2[2]) {
 		close(pipe2[1]);
 		exit(1);
 	}
-	while (read(pipe1[0], &num1, sizeof(float)) > 0 &&
-	read(pipe1[0], &num2, sizeof(float)) > 0 && read(pipe1[0], &num3, sizeof(float)) > 0) {
+	while (read(pipe1[0], &num, 3 * sizeof(float)) > 0 ) {
 		// если делим на ноль, то оправляем родителю сообщение прекратить работу
-		if (num2 * num3 == 0.0) {
+		if (num[1] * num[2] == 0.0) {
 			kill_sig = true;
 			write(pipe2[1], &kill_sig, sizeof(bool));
 			close(fd);
@@ -107,7 +151,7 @@ int child_proc(char* file_name, int pipe1[2], int pipe2[2]) {
 			exit(2);
 		}
 		write(pipe2[1], &kill_sig, sizeof(bool));
-		float res = num1 / (num2 * num3);
+		float res = num[0] / (num[1] * num[2]);
 		// конвертируем флоат в строку для записи в файл
 		char float_str[100];
 		sprintf(float_str, "%f", res);
@@ -148,7 +192,4 @@ int main() {
 	} else {
 		parent_proc(pipe1, pipe2);
 	}
-	close_pipe(pipe1);
-	close_pipe(pipe2);
-	exit(0);
 }
